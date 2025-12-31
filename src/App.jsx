@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import LandingPopup from './components/LandingPopup';
 
 function App() {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [showLandingPopup, setShowLandingPopup] = useState(false);
+
   const [goals, setGoals] = useState(() => {
     const saved = localStorage.getItem('fitnessGoals');
     return saved ? JSON.parse(saved) : [];
@@ -47,6 +51,15 @@ function App() {
   ];
 
   useEffect(() => {
+    const user = JSON.parse(localStorage.getItem('tracklistCurrentUser'));
+    if (!user) {
+      setShowLandingPopup(true);
+    } else {
+      setCurrentUser(user);
+    }
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem('fitnessGoals', JSON.stringify(goals));
   }, [goals]);
 
@@ -57,6 +70,16 @@ function App() {
   useEffect(() => {
     localStorage.setItem('fitnessSubLists', JSON.stringify(subLists));
   }, [subLists]);
+
+  const handleLogin = (user) => {
+    setCurrentUser(user);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('tracklistCurrentUser');
+    setCurrentUser(null);
+    setShowLandingPopup(true);
+  };
 
   const openModal = (type) => {
     setModalType(type);
@@ -286,15 +309,22 @@ function App() {
 
   const { goalProgress, taskProgress, completedGoals, totalGoals, completedTasks, totalTasks } = calculateProgress();
 
+  if (showLandingPopup) {
+    return <LandingPopup onClose={() => setShowLandingPopup(false)} onLogin={handleLogin} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#1c1c1e] text-white font-sans pb-24">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-        <button className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center hover:bg-gray-700 transition-colors">
+        <button onClick={handleLogout} className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center hover:bg-gray-700 transition-colors">
           <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
         </button>
-        <h1 className="text-xl font-semibold">Fitness Tracker</h1>
+        <div className="text-center">
+          <h1 className="text-xl font-semibold">TrackList</h1>
+          {currentUser && <p className="text-xs text-gray-400">@{currentUser.username}</p>}
+        </div>
         <div className="w-8"></div>
       </div>
 
