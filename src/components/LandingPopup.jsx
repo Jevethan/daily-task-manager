@@ -211,8 +211,15 @@ function LandingPopup({ onClose, onLogin }) {
     
     if (authMode === 'login') {
       // Login validation
-      if (!formData.username || !formData.password) {
-        setError('Please enter username and password');
+      if (!formData.email || !formData.password) {
+        setError('Please enter email and password');
+        return;
+      }
+
+      // Basic email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(formData.email)) {
+        setError('Please enter a valid email address');
         return;
       }
 
@@ -220,15 +227,16 @@ function LandingPopup({ onClose, onLogin }) {
       setError('');
 
       try {
-        // Use email field for backend authentication
-        const result = await signinWithPassword(formData.username, formData.password);
+        // Use email and password for backend authentication
+        const result = await signinWithPassword(formData.email, formData.password);
         
         if (result.success && result.user) {
+          setSuccess('Login successful!');
           localStorage.setItem('tracklistCurrentUser', JSON.stringify(result.user));
           onLogin(result.user);
           onClose();
         } else {
-          setError(result.error || 'Invalid credentials');
+          setError(result.error || 'Invalid email or password');
         }
       } catch (err) {
         setError('Login failed. Please try again.');
@@ -238,8 +246,15 @@ function LandingPopup({ onClose, onLogin }) {
       }
     } else if (authMode === 'signup') {
       // Signup validation
-      if (!formData.name || !formData.username || !formData.email || !formData.password || !formData.confirmPassword) {
+      if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword) {
         setError('Please fill in all fields');
+        return;
+      }
+
+      // Email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(formData.email)) {
+        setError('Please enter a valid email address');
         return;
       }
 
@@ -261,6 +276,8 @@ function LandingPopup({ onClose, onLogin }) {
         const result = await signup(formData.email, formData.password);
         
         if (result.success && result.user) {
+          setSuccess('Account created successfully!');
+          
           // Send welcome email
           sendEmail(
             formData.email,
@@ -684,15 +701,13 @@ function LandingPopup({ onClose, onLogin }) {
             )}
 
             <div>
-              <label className="text-xs text-gray-400 mb-2 block font-medium">
-                {authMode === 'signup' ? 'Email' : 'Email or Username'}
-              </label>
+              <label className="text-xs text-gray-400 mb-2 block font-medium">Email Address</label>
               <input
-                type="text"
-                name={authMode === 'signup' ? 'email' : 'username'}
-                value={authMode === 'signup' ? formData.email : formData.username}
+                type="email"
+                name="email"
+                value={formData.email}
                 onChange={handleInputChange}
-                placeholder={authMode === 'signup' ? 'Enter your email' : 'Enter email or username'}
+                placeholder="Enter your email"
                 className="w-full bg-gray-800 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#007aff] placeholder-gray-500 transition-all"
                 disabled={isLoading}
               />
