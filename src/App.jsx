@@ -1,24 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import LandingPopup from './components/LandingPopup';
+import { useSession } from './context/SessionContext';
+import { apiClient } from './api/client';
 
 function App() {
-  const [currentUser, setCurrentUser] = useState(null);
+  const { user, authenticated, loading: authLoading } = useSession();
   const [showLandingPopup, setShowLandingPopup] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [goals, setGoals] = useState(() => {
-    const saved = localStorage.getItem('fitnessGoals');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [tasks, setTasks] = useState(() => {
-    const saved = localStorage.getItem('fitnessTasks');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [subLists, setSubLists] = useState(() => {
-    const saved = localStorage.getItem('fitnessSubLists');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [goals, setGoals] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [subLists, setSubLists] = useState([]);
 
   const [showModal, setShowModal] = useState(false);
   const [modalType, setModalType] = useState('goals');
@@ -50,35 +42,76 @@ function App() {
     { name: 'Red', value: '#ff3b30' },
   ];
 
+  // Check authentication and show landing popup
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('tracklistCurrentUser'));
-    if (!user) {
+    if (!authLoading && !authenticated) {
       setShowLandingPopup(true);
-    } else {
-      setCurrentUser(user);
+      setIsLoading(false);
     }
-  }, []);
+  }, [authenticated, authLoading]);
 
+  // Load data from database when user is authenticated
   useEffect(() => {
-    localStorage.setItem('fitnessGoals', JSON.stringify(goals));
-  }, [goals]);
+    if (authenticated && user) {
+      loadDataFromDatabase();
+    } else {
+      setIsLoading(false);
+    }
+  }, [authenticated, user]);
 
-  useEffect(() => {
-    localStorage.setItem('fitnessTasks', JSON.stringify(tasks));
-  }, [tasks]);
+  const loadDataFromDatabase = async () => {
+    try {
+      setIsLoading(true);
 
-  useEffect(() => {
-    localStorage.setItem('fitnessSubLists', JSON.stringify(subLists));
-  }, [subLists]);
+      // Load goals
+      const goalsResponse = await apiClient.readDocuments('goals');
+      const loadedGoals = goalsResponse.documents.map(doc => ({
+        id: doc.id,
+        text: doc.data.text,
+        completed: doc.data.completed || false
+      }));
+      setGoals(loadedGoals);
 
-  const handleLogin = (user) => {
-    setCurrentUser(user);
+      // Load tasks
+      const tasksResponse = await apiClient.readDocuments('tasks');
+      const loadedTasks = tasksResponse.documents.map(doc => ({
+        id: doc.id,
+        text: doc.data.text,
+        completed: doc.data.completed || false
+      }));
+      setTasks(loadedTasks);
+
+      // Load sub-lists
+      const subListsResponse = await apiClient.readDocuments('subLists');
+      const loadedSubLists = subListsResponse.documents.map(doc => ({
+        id: doc.id,
+        name: doc.data.name,
+        color: doc.data.color,
+        items: doc.data.items || []
+      }));
+      setSubLists(loadedSubLists);
+
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Error loading data from database:', error);
+      setIsLoading(false);
+    }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('tracklistCurrentUser');
-    setCurrentUser(null);
-    setShowLandingPopup(true);
+  const handleLogin = () => {
+    setShowLandingPopup(false);
+  };
+
+  const handleLogout = async () => {
+    try {
+      // Clear local state
+      setGoals([]);
+      setTasks([]);
+      setSubLists([]);
+      setShowLandingPopup(true);
+    } catch (error) {
+      console.error('Error during logout:', error);
+    }
   };
 
   const openModal = (type) => {
@@ -94,22 +127,35 @@ function App() {
     setEditingItem(null);
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!inputValue.trim()) return;
 
-    const newItem = {
-      id: Date.now(),
-      text: inputValue,
-      completed: false
-    };
+    try {
+      const newItemData = {
+        text: inputValue,
+        completed: false
+      };
 
-    if (modalType === 'goals') {
-      setGoals([...goals, newItem]);
-    } else {
-      setTasks([...tasks, newItem]);
+      const collection = modalType === 'goals' ? 'goals' : 'tasks';
+      const response = await apiClient.createDocument(collection, newItemData);
+
+      const newItem = {
+        id: response.id,
+        text: response.data.text,
+        completed: response.data.completed
+      };
+
+      if (modalType === 'goals') {
+        setGoals([...goals, newItem]);
+      } else {
+        setTasks([...tasks, newItem]);
+      }
+
+      closeModal();
+    } catch (error) {
+      console.error('Error adding item:', error);
+      alert('Failed to add item. Please try again.');
     }
-
-    closeModal();
   };
 
   const handleItemClick = (item, type) => {
@@ -119,35 +165,59 @@ function App() {
     setShowModal(true);
   };
 
-  const handleUpdate = () => {
+  const handleUpdate = async () => {
     if (!inputValue.trim() || !editingItem) return;
 
-    if (modalType === 'goals') {
-      setGoals(goals.map(g => g.id === editingItem.id ? { ...g, text: inputValue } : g));
-    } else {
-      setTasks(tasks.map(t => t.id === editingItem.id ? { ...t, text: inputValue } : t));
-    }
+    try {
+      await apiClient.updateDocument(editingItem.id, { text: inputValue });
 
-    closeModal();
+      if (modalType === 'goals') {
+        setGoals(goals.map(g => g.id === editingItem.id ? { ...g, text: inputValue } : g));
+      } else {
+        setTasks(tasks.map(t => t.id === editingItem.id ? { ...t, text: inputValue } : t));
+      }
+
+      closeModal();
+    } catch (error) {
+      console.error('Error updating item:', error);
+      alert('Failed to update item. Please try again.');
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!editingItem) return;
 
-    if (modalType === 'goals') {
-      setGoals(goals.filter(g => g.id !== editingItem.id));
-    } else {
-      setTasks(tasks.filter(t => t.id !== editingItem.id));
-    }
+    try {
+      await apiClient.deleteDocument(editingItem.id, false);
 
-    closeModal();
+      if (modalType === 'goals') {
+        setGoals(goals.filter(g => g.id !== editingItem.id));
+      } else {
+        setTasks(tasks.filter(t => t.id !== editingItem.id));
+      }
+
+      closeModal();
+    } catch (error) {
+      console.error('Error deleting item:', error);
+      alert('Failed to delete item. Please try again.');
+    }
   };
 
-  const toggleComplete = (id, type) => {
-    if (type === 'goals') {
-      setGoals(goals.map(g => g.id === id ? { ...g, completed: !g.completed } : g));
-    } else {
-      setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  const toggleComplete = async (id, type) => {
+    try {
+      const item = type === 'goals' ? goals.find(g => g.id === id) : tasks.find(t => t.id === id);
+      if (!item) return;
+
+      const newCompleted = !item.completed;
+      await apiClient.updateDocument(id, { completed: newCompleted });
+
+      if (type === 'goals') {
+        setGoals(goals.map(g => g.id === id ? { ...g, completed: newCompleted } : g));
+      } else {
+        setTasks(tasks.map(t => t.id === id ? { ...t, completed: newCompleted } : t));
+      }
+    } catch (error) {
+      console.error('Error toggling completion:', error);
     }
   };
 
@@ -163,18 +233,31 @@ function App() {
     setSubListColor('#ff9500');
   };
 
-  const handleCreateSubList = () => {
+  const handleCreateSubList = async () => {
     if (!subListName.trim()) return;
 
-    const newSubList = {
-      id: Date.now(),
-      name: subListName,
-      color: subListColor,
-      items: []
-    };
+    try {
+      const newSubListData = {
+        name: subListName,
+        color: subListColor,
+        items: []
+      };
 
-    setSubLists([...subLists, newSubList]);
-    closeSubListModal();
+      const response = await apiClient.createDocument('subLists', newSubListData);
+
+      const newSubList = {
+        id: response.id,
+        name: response.data.name,
+        color: response.data.color,
+        items: response.data.items || []
+      };
+
+      setSubLists([...subLists, newSubList]);
+      closeSubListModal();
+    } catch (error) {
+      console.error('Error creating sub-list:', error);
+      alert('Failed to create sub-list. Please try again.');
+    }
   };
 
   const openSubListItemModal = (subListId) => {
@@ -191,22 +274,33 @@ function App() {
     setCurrentSubListId(null);
   };
 
-  const handleAddSubListItem = () => {
+  const handleAddSubListItem = async () => {
     if (!subListItemInput.trim() || !currentSubListId) return;
 
-    const newItem = {
-      id: Date.now(),
-      text: subListItemInput,
-      completed: false
-    };
+    try {
+      const subList = subLists.find(sl => sl.id === currentSubListId);
+      if (!subList) return;
 
-    setSubLists(subLists.map(sl => 
-      sl.id === currentSubListId 
-        ? { ...sl, items: [...sl.items, newItem] }
-        : sl
-    ));
+      const newItem = {
+        id: Date.now().toString(),
+        text: subListItemInput,
+        completed: false
+      };
 
-    closeSubListItemModal();
+      const updatedItems = [...subList.items, newItem];
+      await apiClient.updateDocument(currentSubListId, { items: updatedItems });
+
+      setSubLists(subLists.map(sl => 
+        sl.id === currentSubListId 
+          ? { ...sl, items: updatedItems }
+          : sl
+      ));
+
+      closeSubListItemModal();
+    } catch (error) {
+      console.error('Error adding sub-list item:', error);
+      alert('Failed to add item. Please try again.');
+    }
   };
 
   const handleSubListItemClick = (subListId, item) => {
@@ -216,50 +310,78 @@ function App() {
     setShowSubListItemModal(true);
   };
 
-  const handleUpdateSubListItem = () => {
+  const handleUpdateSubListItem = async () => {
     if (!subListItemInput.trim() || !editingSubListItem || !currentSubListId) return;
 
-    setSubLists(subLists.map(sl => 
-      sl.id === currentSubListId
-        ? {
-            ...sl,
-            items: sl.items.map(item => 
-              item.id === editingSubListItem.id 
-                ? { ...item, text: subListItemInput }
-                : item
-            )
-          }
-        : sl
-    ));
+    try {
+      const subList = subLists.find(sl => sl.id === currentSubListId);
+      if (!subList) return;
 
-    closeSubListItemModal();
+      const updatedItems = subList.items.map(item => 
+        item.id === editingSubListItem.id 
+          ? { ...item, text: subListItemInput }
+          : item
+      );
+
+      await apiClient.updateDocument(currentSubListId, { items: updatedItems });
+
+      setSubLists(subLists.map(sl => 
+        sl.id === currentSubListId
+          ? { ...sl, items: updatedItems }
+          : sl
+      ));
+
+      closeSubListItemModal();
+    } catch (error) {
+      console.error('Error updating sub-list item:', error);
+      alert('Failed to update item. Please try again.');
+    }
   };
 
-  const handleDeleteSubListItem = () => {
+  const handleDeleteSubListItem = async () => {
     if (!editingSubListItem || !currentSubListId) return;
 
-    setSubLists(subLists.map(sl => 
-      sl.id === currentSubListId
-        ? { ...sl, items: sl.items.filter(item => item.id !== editingSubListItem.id) }
-        : sl
-    ));
+    try {
+      const subList = subLists.find(sl => sl.id === currentSubListId);
+      if (!subList) return;
 
-    closeSubListItemModal();
+      const updatedItems = subList.items.filter(item => item.id !== editingSubListItem.id);
+      await apiClient.updateDocument(currentSubListId, { items: updatedItems });
+
+      setSubLists(subLists.map(sl => 
+        sl.id === currentSubListId
+          ? { ...sl, items: updatedItems }
+          : sl
+      ));
+
+      closeSubListItemModal();
+    } catch (error) {
+      console.error('Error deleting sub-list item:', error);
+      alert('Failed to delete item. Please try again.');
+    }
   };
 
-  const toggleSubListItemComplete = (subListId, itemId) => {
-    setSubLists(subLists.map(sl => 
-      sl.id === subListId
-        ? {
-            ...sl,
-            items: sl.items.map(item => 
-              item.id === itemId 
-                ? { ...item, completed: !item.completed }
-                : item
-            )
-          }
-        : sl
-    ));
+  const toggleSubListItemComplete = async (subListId, itemId) => {
+    try {
+      const subList = subLists.find(sl => sl.id === subListId);
+      if (!subList) return;
+
+      const updatedItems = subList.items.map(item => 
+        item.id === itemId 
+          ? { ...item, completed: !item.completed }
+          : item
+      );
+
+      await apiClient.updateDocument(subListId, { items: updatedItems });
+
+      setSubLists(subLists.map(sl => 
+        sl.id === subListId
+          ? { ...sl, items: updatedItems }
+          : sl
+      ));
+    } catch (error) {
+      console.error('Error toggling sub-list item completion:', error);
+    }
   };
 
   const openSubListEditModal = (subList) => {
@@ -276,23 +398,39 @@ function App() {
     setEditSubListColor('#ff9500');
   };
 
-  const handleUpdateSubList = () => {
+  const handleUpdateSubList = async () => {
     if (!editSubListName.trim() || !editingSubList) return;
 
-    setSubLists(subLists.map(sl => 
-      sl.id === editingSubList.id
-        ? { ...sl, name: editSubListName, color: editSubListColor }
-        : sl
-    ));
+    try {
+      await apiClient.updateDocument(editingSubList.id, { 
+        name: editSubListName, 
+        color: editSubListColor 
+      });
 
-    closeSubListEditModal();
+      setSubLists(subLists.map(sl => 
+        sl.id === editingSubList.id
+          ? { ...sl, name: editSubListName, color: editSubListColor }
+          : sl
+      ));
+
+      closeSubListEditModal();
+    } catch (error) {
+      console.error('Error updating sub-list:', error);
+      alert('Failed to update sub-list. Please try again.');
+    }
   };
 
-  const handleDeleteSubList = () => {
+  const handleDeleteSubList = async () => {
     if (!editingSubList) return;
 
-    setSubLists(subLists.filter(sl => sl.id !== editingSubList.id));
-    closeSubListEditModal();
+    try {
+      await apiClient.deleteDocument(editingSubList.id, false);
+      setSubLists(subLists.filter(sl => sl.id !== editingSubList.id));
+      closeSubListEditModal();
+    } catch (error) {
+      console.error('Error deleting sub-list:', error);
+      alert('Failed to delete sub-list. Please try again.');
+    }
   };
 
   const calculateProgress = () => {
@@ -313,6 +451,17 @@ function App() {
     return <LandingPopup onClose={() => setShowLandingPopup(false)} onLogin={handleLogin} />;
   }
 
+  if (authLoading || isLoading) {
+    return (
+      <div className="min-h-screen bg-[#1c1c1e] flex items-center justify-center">
+        <div className="text-white text-center">
+          <div className="w-16 h-16 border-4 border-[#007aff] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-lg">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#1c1c1e] text-white font-sans pb-24">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
@@ -323,7 +472,7 @@ function App() {
         </button>
         <div className="text-center">
           <h1 className="text-xl font-semibold">TrackList</h1>
-          {currentUser && <p className="text-xs text-gray-400">@{currentUser.username}</p>}
+          {user && <p className="text-xs text-gray-400">@{user.email?.split('@')[0]}</p>}
         </div>
         <div className="w-8"></div>
       </div>
